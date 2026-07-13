@@ -1,11 +1,23 @@
 # Default values for pubsub.
 # This is a YAML-formatted file.
 # Declare variables to be passed into your templates.
-rbac:
-  enabled: false
-  details: {}
+#
+# This chart is open-source friendly: with the defaults below it installs
+# standalone (`helm install` with no flags) and carries NO Infoblox-internal
+# values — no registry host, no Vault paths, no secret names, no account IDs,
+# no role ARNs. Internal specifics are layered on at deploy time via an
+# internal base overlay and/or cluster facts (see global.ib0 below).
 
-imagePullSecretsName:
+# Gates creation of the "pubsub" ServiceAccount (used by the Deployment and
+# carrying the IRSA role-arn annotation, see serviceAccount below). Enabled by
+# default. (Named `rbac` for backward compatibility with existing tooling.)
+rbac:
+  enabled: true
+
+# Optional pre-provisioned image-pull secret to attach to the ServiceAccount.
+# Empty by default: images are pulled directly (no secret). Set to a secret
+# name to attach one; only rendered when non-empty.
+imagePullSecretsName: ""
 
 replicaCount: 1
 
@@ -17,27 +29,32 @@ podAnnotations:
 # additional labels to add to the pods
 podLabels: {}
 
-env:
-  name: "AWS_REGION"
-  value: "us-east-1"
-
 # AWS configuration
 aws:
-  # Target AWS account ID for cross-account SNS/SQS communication
-  # If specified, all publishers and subscribers will use this account ID for topic ARNs
+  # Region the workload runs in. Leave empty to inherit from the cluster fact
+  # (global.ib0.cluster.region). Set explicitly for standalone use.
+  region: ""
+  # Target AWS account ID for cross-account SNS/SQS communication.
+  # If set, publishers/subscribers use this account ID for topic ARNs.
   targetAccountID: ""
 
 image:
+  # Docker Hub org by default (NO registry host). When
+  # global.ib0.services.registry.host is set, the "pubsub.image" helper
+  # (templates/_helpers.tpl) prepends that host in front of the infobloxcto
+  # org. Otherwise this value is used as-is.
   repository: "infobloxcto"
   name: "atlas.pubsub"
-  tag:
+  tag: ""            # defaults to .Chart.AppVersion in the helper when empty
   pullPolicy: Always
 
 service:
   type: ClusterIP
   port: 8080
   logging_level: "debug"
-  aws_region: "us-east-1"
+  # Resolved from the cluster region fact at render time. Consuming templates
+  # `tpl` this once. A plain literal (e.g. "us-east-1") also works.
+  aws_region: '{{ tpl .Values.global.ib0.cluster.region . }}'
 
 internal:
   port: 5555
@@ -51,5 +68,27 @@ resources:
     memory: 400Mi
 
 serviceAccount:
-  # Annotations to add to the service account
+  # IRSA role ARN for the eks.amazonaws.com/role-arn annotation, which is
+  # ALWAYS rendered on the ServiceAccount. Empty by default: the real ARN is
+  # injected onto the ServiceAccount at deploy time (applies to all clusters,
+  # new ones included), so no per-cluster fact lookup is needed here. Set
+  # explicitly only for standalone use; tpl-evaluated so it may contain refs.
+  roleArn: ""
+  # Additional annotations to add to the service account.
   annotations: {}
+
+# Global values. `global.ib0` carries cluster facts shared across charts.
+# Derived/empty by default here; populated by real cluster facts or the
+# internal base overlay at deploy time.
+global:
+  ib0:
+    cluster:
+      # Region, derived from aws.region by default and overridden by the real
+      # cluster fact when available. Consumed via service.aws_region.
+      region: '{{ .Values.aws.region | default "" }}'
+    services:
+      registry:
+        # Empty => images pull from Docker Hub (image.repository as-is).
+        # The internal base sets this to the internal registry host, which the
+        # "pubsub.image" helper prepends in front of the infobloxcto org.
+        host: ""

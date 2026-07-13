@@ -1,17 +1,17 @@
 {{ if eq .Values.rbac.enabled true }}
-  {{- toYaml .Values.rbac.details }}
----
 kind: ServiceAccount
 apiVersion: v1
 metadata:
   name: pubsub
   namespace: {{ .Release.Namespace }}
-  {{- with .Values.serviceAccount.annotations }}
+  {{- $saAnnotations := deepCopy (.Values.serviceAccount.annotations | default dict) }}
+  {{- $_ := set $saAnnotations "eks.amazonaws.com/role-arn" (tpl (.Values.serviceAccount.roleArn | default "") $) }}
   annotations:
-    {{- toYaml . | nindent 4 }}
-  {{- end }}
+    {{- toYaml $saAnnotations | nindent 4 }}
+  {{- with (tpl (.Values.imagePullSecretsName | default "") $) }}
 imagePullSecrets:
-- name: {{ tpl .Values.imagePullSecretsName . }}
+- name: {{ . }}
+  {{- end }}
 {{ end }}
 ---
 apiVersion: apps/v1
@@ -43,11 +43,11 @@ spec:
   {{- end }}
       containers:
         - name: pubsub-server
-          image: {{ .Values.image.repository }}/{{ .Values.image.name }}:{{ .Values.image.tag | default .Chart.AppVersion }}
+          image: {{ include "pubsub.image" . }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           env:
           - name: AWS_REGION
-            value: {{ .Values.service.aws_region }}
+            value: {{ tpl .Values.service.aws_region . | quote }}
           - name: TARGET_AWS_ACCOUNT_ID
             value: {{ .Values.aws.targetAccountID | default "" | quote }}
           ports:

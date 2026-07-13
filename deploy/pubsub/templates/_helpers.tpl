@@ -43,3 +43,21 @@ app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
 {{- end }}
 app.kubernetes.io/managed-by: {{ .Release.Service }}
 {{- end -}}
+
+{{/*
+Container image reference.
+When the cluster fact global.ib0.services.registry.host is set, the internal
+registry host is prepended in front of the infobloxcto org (internal images
+live at <registry-host>/infobloxcto/<name>). When it is empty, image.repository
+is used as-is (Docker Hub by default). The registry host may itself be a
+template string, so it is tpl'd. The tag defaults to the chart appVersion when
+image.tag is empty.
+*/}}
+{{- define "pubsub.image" -}}
+{{- $repo := .Values.image.repository -}}
+{{- $host := tpl (((((.Values.global).ib0).services).registry).host | default "") . -}}
+{{- if $host -}}
+{{- $repo = printf "%s/infobloxcto" $host -}}
+{{- end -}}
+{{- printf "%s/%s:%s" $repo .Values.image.name (.Values.image.tag | default .Chart.AppVersion) -}}
+{{- end -}}
